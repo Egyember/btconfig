@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
@@ -42,7 +43,7 @@ func initialModel() model {
 	m.scan = false
 	m.adapter = bt.DefaultAdapter
 	m.adapter.Enable()
-	m.selected = -1
+	m.selected = 0
 	m.btdevs = new(btdevs)
 	m.btdevs.add = make(chan btdev, 10)
 	m.btdevs.scanResults = make([]btdev, 0)
@@ -77,6 +78,14 @@ func (s model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}()
 				s.scan = true
 			}
+		case "up":
+			if s.selected > 0 {
+				s.selected--
+			}
+		case "down":
+			if s.selected < len(s.btdevs.scanResults)-1 {
+				s.selected++
+			}
 		default:
 			s.presses = append(s.presses, msg.String())
 		}
@@ -104,6 +113,8 @@ func (s model) scanCallback(adapter *bt.Adapter, device bt.ScanResult) {
 func (s model) View() string {
 	st := s.RenderStatusBar()
 	st += s.RenderMainContent()
+	st += fmt.Sprintln(s.term.x, "x", s.term.y)
+	st += fmt.Sprintln(s.selected)
 	st += "Button presses:\n"
 	for _, v := range s.presses {
 		st += v
@@ -111,7 +122,7 @@ func (s model) View() string {
 	// padding to the end of the terminal
 	numlines := strings.Count(st, "\n")
 	padding := s.term.y - (numlines + 1)
-	if s.term.y != 0 {
+	if padding > 0 {
 		st += strings.Repeat("\n", padding)
 	}
 
@@ -127,13 +138,18 @@ func (s model) RenderStatusBar() (b string) {
 	} else {
 		b = ansi.SetColor("Scan off", ansi.BGred)
 	}
-	padding := s.term.x - len(b)
-	b += strings.Repeat(" ", padding)
+	padding := s.term.x - (len(b) - ansi.CountAnsi(b))
+	if padding > 0 {
+		b += strings.Repeat(" ", padding)
+	}
 	b += "\n"
 	return
 }
 
 func (s model) RenderMainContent() (b string) {
+	if s.term.x == 0 {
+		return ""
+	}
 	b = ""
 	if s.err != nil {
 		errTxt := s.err.Error()
@@ -144,9 +160,12 @@ func (s model) RenderMainContent() (b string) {
 		b += str
 		return
 	}
+	data := make([][]string, len(s.btdevs.scanResults))
 	for k, v := range s.btdevs.scanResults {
-		b += fmt.Sprintf("%d: Name: %s, Addres: %s\n", k, v.name, v.addr.String())
+		data[k] = []string{v.name, v.addr.String()}
 	}
+	tableWith := []int{int(math.Floor(float64(s.term.x) / 2.0)), int(math.Ceil(float64(s.term.x) / 2.0))}
+	b += ansi.Table([]string{"Name", "Addres"}, data, tableWith, s.selected)
 	return
 }
 
