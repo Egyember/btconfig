@@ -13,6 +13,8 @@ import (
 	bt "tinygo.org/x/bluetooth"
 )
 
+var ErrWriteLess = errors.New("wrote less then specified string")
+
 type btdev struct {
 	name string
 	addr bt.Address
@@ -30,6 +32,11 @@ type conncetion struct {
 	services        []bt.DeviceService
 	characteristics []bt.DeviceCharacteristic
 }
+
+type wificonf struct {
+	passwd, ssid  string
+	channel, auth uint8
+}
 type model struct {
 	presses []string
 	scan    bool
@@ -44,6 +51,7 @@ type model struct {
 	conncetion *conncetion
 	textInPut  bool
 	text       *string
+	wificonfig wificonf
 	err        error
 }
 
@@ -173,6 +181,22 @@ func (s *btdevs) addResult() {
 	}
 }
 
+func (s model) sendWifi() error {
+	for _, v := range s.conncetion.characteristics {
+		switch v.UUID() {
+		case bt.NewUUID([16]byte{247, 35, 207, 46, 213, 119, 141, 146, 175, 79, 198, 129, 199, 180, 108, 235}): // ssid
+			n, err := v.WriteWithoutResponse([]byte(s.wificonfig.ssid))
+			if err != nil {
+				return err
+			}
+			if n != len(s.wificonfig.ssid) {
+				return ErrWriteLess
+			}
+		}
+	}
+	return nil
+}
+
 func (s model) scanCallback(adapter *bt.Adapter, device bt.ScanResult) {
 	// fmt.Println(device.LocalName())
 	result := btdev{name: device.LocalName(), addr: device.Address}
@@ -238,6 +262,7 @@ func (s model) RenderMainContent() (b string) {
 		tableWith := []int{int(math.Floor(float64(s.term.x) / 2.0)), int(math.Ceil(float64(s.term.x) / 2.0))}
 		b += ansi.Table([]string{"Name", "Addres"}, data, tableWith, s.cursor)
 		return
+	} else {
 	}
 	for _, v := range s.conncetion.characteristics {
 		b += fmt.Sprintln(v)
