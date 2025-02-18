@@ -181,19 +181,47 @@ func (s *btdevs) addResult() {
 	}
 }
 
+func btsend(characteristic bt.DeviceCharacteristic, data []byte) error {
+	n, err := characteristic.WriteWithoutResponse(data)
+	if err != nil {
+		return err
+	}
+	if n != len(data) {
+		return ErrWriteLess
+	}
+	return nil
+}
+
 func (s model) sendWifi() error {
+	var done bt.DeviceCharacteristic
 	for _, v := range s.conncetion.characteristics {
 		switch v.UUID() {
 		case bt.NewUUID([16]byte{247, 35, 207, 46, 213, 119, 141, 146, 175, 79, 198, 129, 199, 180, 108, 235}): // ssid
-			n, err := v.WriteWithoutResponse([]byte(s.wificonfig.ssid))
+			err := btsend(v, []byte(s.wificonfig.ssid))
 			if err != nil {
 				return err
 			}
-			if n != len(s.wificonfig.ssid) {
-				return ErrWriteLess
+		case bt.NewUUID([16]byte{247, 35, 207, 46, 213, 119, 141, 146, 175, 79, 198, 129, 199, 180, 108, 236}): // passwd
+			err := btsend(v, []byte(s.wificonfig.passwd))
+			if err != nil {
+				return err
 			}
+		case bt.NewUUID([16]byte{247, 35, 207, 46, 213, 119, 141, 146, 175, 79, 198, 129, 199, 180, 108, 237}): // channel
+			err := btsend(v, []byte{s.wificonfig.channel})
+			if err != nil {
+				return err
+			}
+		case bt.NewUUID([16]byte{247, 35, 207, 46, 213, 119, 141, 146, 175, 79, 198, 129, 199, 180, 108, 238}): // AUTHMETOD
+			err := btsend(v, []byte{s.wificonfig.auth})
+			if err != nil {
+				return err
+			}
+		case bt.NewUUID([16]byte{247, 35, 207, 46, 213, 119, 141, 146, 175, 79, 198, 129, 199, 180, 108, 239}): // done
+		done = v
 		}
 	}
+	readbuffer := make([]byte, 16)
+	done.Read(readbuffer)
 	return nil
 }
 
@@ -263,6 +291,9 @@ func (s model) RenderMainContent() (b string) {
 		b += ansi.Table([]string{"Name", "Addres"}, data, tableWith, s.cursor)
 		return
 	} else {
+		data := make([][]string, 4)
+		tableWith := []int{int(math.Floor(float64(s.term.x) / 2.0)), int(math.Ceil(float64(s.term.x) / 2.0))}
+		b += ansi.Table([]string{"Name", "value"}, data, tableWith, s.cursor)
 	}
 	for _, v := range s.conncetion.characteristics {
 		b += fmt.Sprintln(v)
