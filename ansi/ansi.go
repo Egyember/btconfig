@@ -89,7 +89,11 @@ func Table(titles []string, data [][]string, lengths []int, selected int) string
 	s += SetColor(title, BGwhite, FGblack)
 	for k, v := range data {
 		if k == selected {
-			s += SetColor(drawLine(v, lengths), BGblue)
+			line := drawLine(v, lengths)
+			s += SetColor(strings.TrimSuffix(line, "\n"), BGblue) + "\n" // hack for bubbletea
+			/*
+				bubble tea only draw characters on screen which means ansi escape codes not always take effect when they supposed to if thay outside of the terminal window
+			*/
 		} else {
 			s += drawLine(v, lengths)
 		}

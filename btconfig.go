@@ -34,7 +34,7 @@ type conncetion struct {
 }
 
 type wificonf struct {
-	passwd, ssid  string
+	passwd, ssid  *string
 	channel, auth uint8
 }
 type model struct {
@@ -43,16 +43,17 @@ type model struct {
 	term    struct {
 		x, y int
 	}
-	adapter    *bt.Adapter
-	btdevs     *btdevs
-	cursor     int
-	cursorMax  int
-	selected   int
-	conncetion *conncetion
-	textInPut  bool
-	text       *string
-	wificonfig wificonf
-	err        error
+	adapter         *bt.Adapter
+	btdevs          *btdevs
+	cursor          int
+	scanCursorMax   int
+	configCursormax int
+	selected        int
+	conncetion      *conncetion
+	textInPut       bool
+	text            **string
+	wificonfig      *wificonf
+	err             error
 }
 
 func initialModel() model {
@@ -62,7 +63,8 @@ func initialModel() model {
 	m.scan = false
 	m.adapter = bt.DefaultAdapter
 	m.adapter.Enable()
-	m.cursorMax = 0
+	m.scanCursorMax = 0
+	m.configCursormax = 4
 	m.cursor = 0
 	m.selected = -1
 	m.conncetion = nil
@@ -72,6 +74,10 @@ func initialModel() model {
 	go m.btdevs.addResult()
 	m.text = nil
 	m.textInPut = false
+	var strings [2]string
+	m.wificonfig = new(wificonf)
+	m.wificonfig.ssid = &strings[0]
+	m.wificonfig.passwd = &strings[1]
 	return m
 }
 
@@ -84,11 +90,22 @@ func (s model) parseKey(msg tea.KeyMsg) (model, tea.Cmd) {
 		return s, nil
 	}
 	switch msg.String() {
-	case "ctrl+c", "q":
+	case "ctrl+c":
 		if s.conncetion != nil {
 			s.conncetion.connected.Disconnect()
 		}
 		return s, tea.Quit
+	case "esc", "q":
+		if s.selected == -1 {
+			if s.conncetion != nil {
+				s.conncetion.connected.Disconnect()
+			}
+			return s, tea.Quit
+		} else {
+			s.conncetion.connected.Disconnect()
+			s.conncetion = nil
+			s.selected = -1
+		}
 	case "s":
 		if s.scan {
 			s.adapter.StopScan()
@@ -108,8 +125,14 @@ func (s model) parseKey(msg tea.KeyMsg) (model, tea.Cmd) {
 			s.cursor--
 		}
 	case "down":
-		if s.cursor < s.cursorMax {
-			s.cursor++
+		if s.selected == -1 {
+			if s.cursor < s.scanCursorMax {
+				s.cursor++
+			}
+		} else {
+			if s.cursor < s.configCursormax {
+				s.cursor++
+			}
 		}
 	case "enter":
 		if s.err != nil {
@@ -146,7 +169,17 @@ func (s model) parseKey(msg tea.KeyMsg) (model, tea.Cmd) {
 				break
 			}
 
+		} else {
+			switch s.selected {
+			case 0:
+				s.text = &s.wificonfig.ssid
+			case 1:
+				s.text = &s.wificonfig.passwd
+			}
+			s.textInPut = true
 		}
+	case "r":
+		return s, tea.ClearScreen
 	default:
 		s.presses = append(s.presses, msg.String())
 	}
@@ -160,12 +193,24 @@ func (s model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.term.y = msg.Height
 	case tea.KeyMsg:
 		if s.textInPut {
+			if s.text == nil {
+				panic(errors.New("invalid text buffer"))
+			}
+			input := msg.String()
+			if input == "enter" {
+				s.textInPut = false
+				s.text = nil
+				break
+			}
+			output := new(string)
+			*output = **s.text + input
+			*s.text = output
 		} else {
 			return s.parseKey(msg)
 		}
 	case MsgNewDev:
 		if s.selected == -1 {
-			s.cursorMax = len(s.btdevs.scanResults) - 1
+			s.scanCursorMax = len(s.btdevs.scanResults) - 1
 		}
 		return s, nil
 	}
@@ -197,12 +242,12 @@ func (s model) sendWifi() error {
 	for _, v := range s.conncetion.characteristics {
 		switch v.UUID() {
 		case bt.NewUUID([16]byte{247, 35, 207, 46, 213, 119, 141, 146, 175, 79, 198, 129, 199, 180, 108, 235}): // ssid
-			err := btsend(v, []byte(s.wificonfig.ssid))
+			err := btsend(v, []byte(*s.wificonfig.ssid))
 			if err != nil {
 				return err
 			}
 		case bt.NewUUID([16]byte{247, 35, 207, 46, 213, 119, 141, 146, 175, 79, 198, 129, 199, 180, 108, 236}): // passwd
-			err := btsend(v, []byte(s.wificonfig.passwd))
+			err := btsend(v, []byte(*s.wificonfig.passwd))
 			if err != nil {
 				return err
 			}
@@ -217,7 +262,7 @@ func (s model) sendWifi() error {
 				return err
 			}
 		case bt.NewUUID([16]byte{247, 35, 207, 46, 213, 119, 141, 146, 175, 79, 198, 129, 199, 180, 108, 239}): // done
-		done = v
+			done = v
 		}
 	}
 	readbuffer := make([]byte, 16)
@@ -239,6 +284,13 @@ func (s model) View() string {
 	st += "Button presses:\n"
 	for _, v := range s.presses {
 		st += v
+	}
+	if s.text != nil {
+		st += fmt.Sprintf("*s.text: %p\n", *s.text)
+		if *s.text != nil {
+			st += fmt.Sprintf("**s.text: %p\n", **s.text)
+		}
+
 	}
 	// padding to the end of the terminal
 	numlines := strings.Count(st, "\n")
@@ -291,7 +343,12 @@ func (s model) RenderMainContent() (b string) {
 		b += ansi.Table([]string{"Name", "Addres"}, data, tableWith, s.cursor)
 		return
 	} else {
-		data := make([][]string, 4)
+		data := [][]string{
+			{"ssid", *s.wificonfig.ssid},
+			{"password", *s.wificonfig.passwd},
+			{"channel", string(s.wificonfig.channel)},
+			{"auth", string(s.wificonfig.auth)},
+		}
 		tableWith := []int{int(math.Floor(float64(s.term.x) / 2.0)), int(math.Ceil(float64(s.term.x) / 2.0))}
 		b += ansi.Table([]string{"Name", "value"}, data, tableWith, s.cursor)
 	}
