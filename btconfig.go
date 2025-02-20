@@ -173,10 +173,13 @@ func (s model) parseKey(msg tea.KeyMsg) (model, tea.Cmd) {
 			switch s.selected {
 			case 0:
 				s.text = &s.wificonfig.ssid
+				s.textInPut = true
 			case 1:
 				s.text = &s.wificonfig.passwd
+				s.textInPut = true
+			case 4:
+				s.sendWifi()
 			}
-			s.textInPut = true
 		}
 	case "r":
 		return s, tea.ClearScreen
@@ -351,11 +354,20 @@ func (s model) RenderMainContent() (b string) {
 		}
 		tableWith := []int{int(math.Floor(float64(s.term.x) / 2.0)), int(math.Ceil(float64(s.term.x) / 2.0))}
 		b += ansi.Table([]string{"Name", "value"}, data, tableWith, s.cursor)
+		button, err := ansi.MidleText("send", s.term.x)
+		if errors.Is(err, ansi.ErrTooLong) {
+			if s.term.x >= 0 {
+				text := "send"[:s.term.x-2]
+				text += ">"
+				button, _ = ansi.MidleText(text, s.term.x)
+			}
+		}
+		if s.cursor == 4 {
+			b += ansi.SetColor(button, ansi.BGblue)
+			return
+		}
+		b += button
 	}
-	for _, v := range s.conncetion.characteristics {
-		b += fmt.Sprintln(v)
-	}
-
 	return
 }
 
